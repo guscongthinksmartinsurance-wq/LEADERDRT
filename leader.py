@@ -68,64 +68,79 @@ def main():
         m_crm = df_crm[df_crm['MY_REF'] == sel_month]
         m_ml = df_ml[df_ml['MY_REF'] == sel_month]
 
-        tab1, tab2, tab3 = st.tabs(["Doi soat MKT", "Trang thai CRM", "Doanh thu Masterlife"])
-
-        # LOGIC TINH TOAN MASTERLIFE
-        if not m_ml.empty:
-            m_ml['FINAL_REV'] = m_ml.apply(get_rev, axis=1)
-            def get_cycle(row):
-                crm_rec = df_crm[df_crm['MATCH_ID'] == row['MATCH_ID']]
-                if not crm_rec.empty:
-                    d_crm = pd.to_datetime(crm_rec['DATE ADDED'].iloc[0], errors='coerce')
-                    d_ml = pd.to_datetime(row['DATE ADDED'], errors='coerce')
-                    if pd.notna(d_crm) and pd.notna(d_ml): return (d_ml.year - d_crm.year) * 12 + (d_ml.month - d_crm.month)
-                return "N/A"
-            m_ml['CYCLE'] = m_ml.apply(get_cycle, axis=1)
+        tab1, tab2, tab3 = st.tabs(["Doi soat MKT", "Dashboard & Trang thai CRM", "Doanh thu Masterlife"])
 
         with tab1:
             st.subheader(f"Doi soat MKT - {sel_month}")
             if not m_mkt.empty:
                 leads_on_crm = m_mkt['MATCH_ID'].isin(df_crm['MATCH_ID']).sum()
                 st.metric("Lead da len CRM", f"{leads_on_crm}/{len(m_mkt)}")
-                st.dataframe(m_mkt[['OWNER', 'LEAD ID', 'CELLPHONE', 'DATE ADDED']], use_container_width=True)
+                display_mkt = m_mkt[['OWNER', 'LEAD ID', 'CELLPHONE', 'DATE ADDED']].copy()
+                display_mkt.insert(0, 'STT', range(1, len(display_mkt) + 1))
+                st.dataframe(display_mkt, use_container_width=True, hide_index=True)
 
         with tab2:
-            st.subheader(f"Trang thai CRM - {sel_month}")
-            pivot_status = m_crm.groupby(['OWNER', 'STATUS']).size().unstack(fill_value=0) if not m_crm.empty else pd.DataFrame()
-            st.dataframe(pivot_status, use_container_width=True)
+            st.subheader(f"Dashboard Quan tri CRM - {sel_month}")
+            if not m_crm.empty:
+                c1, c2 = st.columns([1, 2])
+                status_counts = m_crm['STATUS'].value_counts()
+                with c1:
+                    st.markdown("**Tong quan Trang thai**")
+                    st.bar_chart(status_counts)
+                with c2:
+                    st.markdown("**Phan bo Lead theo Owner**")
+                    owner_counts = m_crm['OWNER'].value_counts()
+                    st.bar_chart(owner_counts)
+                
+                st.markdown("---")
+                st.markdown("**Chi tiet trang thai tung thanh vien**")
+                pivot_status = m_crm.groupby(['OWNER', 'STATUS']).size().unstack(fill_value=0)
+                st.dataframe(pivot_status.style.background_gradient(cmap="Blues", axis=1), use_container_width=True)
 
         with tab3:
-            st.subheader(f"Doanh thu - {sel_month}")
+            st.subheader(f"Doanh thu Masterlife - {sel_month}")
             if not m_ml.empty:
-                st.dataframe(m_ml[['OWNER', 'LEAD ID', 'TEAM', 'FINAL_REV', 'CYCLE']], use_container_width=True)
+                m_ml['FINAL_REV'] = m_ml.apply(get_rev, axis=1)
+                def get_cycle(row):
+                    crm_rec = df_crm[df_crm['MATCH_ID'] == row['MATCH_ID']]
+                    if not crm_rec.empty:
+                        d_crm = pd.to_datetime(crm_rec['DATE ADDED'].iloc[0], errors='coerce')
+                        d_ml = pd.to_datetime(row['DATE ADDED'], errors='coerce')
+                        if pd.notna(d_crm) and pd.notna(d_ml): return (d_ml.year - d_crm.year) * 12 + (d_ml.month - d_crm.month)
+                    return "N/A"
+                m_ml['CYCLE'] = m_ml.apply(get_cycle, axis=1)
+                
+                display_ml = m_ml[['OWNER', 'LEAD ID', 'TEAM', 'FINAL_REV', 'CYCLE']].copy()
+                display_ml.insert(0, 'STT', range(1, len(display_ml) + 1))
+                st.dataframe(display_ml, use_container_width=True, hide_index=True)
 
-        # --- EXPORT MULTI-SHEET ---
         st.sidebar.markdown("---")
         if st.sidebar.button("Chuan bi File Export"):
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 workbook = writer.book
-                # Dinh dang
                 header_fmt = workbook.add_format({'bold': True, 'bg_color': '#1F4E78', 'font_color': 'white', 'border': 1, 'align': 'center', 'valign': 'vcenter'})
                 cell_fmt = workbook.add_format({'border': 1, 'align': 'center', 'valign': 'vcenter'})
                 title_fmt = workbook.add_format({'bold': True, 'font_size': 14})
 
                 def write_sheet(df, name, title):
-                    df.to_excel(writer, sheet_name=name, index=True if name == "CRM_Status" else False, startrow=3)
+                    df_export = df.copy()
+                    if 'STT' not in df_export.columns and name != "CRM_Status":
+                        df_export.insert(0, 'STT', range(1, len(df_export) + 1))
+                    
+                    df_export.to_excel(writer, sheet_name=name, index=True if name == "CRM_Status" else False, startrow=3)
                     ws = writer.sheets[name]
                     ws.write(0, 0, title, title_fmt)
                     ws.write(1, 0, f"Ngay xuat: {datetime.now().strftime('%d/%m/%Y')}")
-                    for col_num, value in enumerate(df.columns.values):
+                    
+                    for col_num, value in enumerate(df_export.columns.values):
                         col_idx = col_num + (1 if name == "CRM_Status" else 0)
                         ws.write(3, col_idx, value, header_fmt)
                         ws.set_column(col_idx, col_idx, 20, cell_fmt)
                     if name == "CRM_Status": ws.write(3, 0, "OWNER", header_fmt)
 
-                # Sheet 1: Masterlife
                 if not m_ml.empty: write_sheet(m_ml[['OWNER', 'LEAD ID', 'SOURCE', 'TEAM', 'FINAL_REV', 'CYCLE']], 'Sales_Summary', f"BAO CAO DOANH THU - {sel_month}")
-                # Sheet 2: CRM Status
-                if not pivot_status.empty: write_sheet(pivot_status, 'CRM_Status', f"THONG KE TRANG THAI CRM - {sel_month}")
-                # Sheet 3: MKT Audit
+                if not m_crm.empty: write_sheet(pivot_status, 'CRM_Status', f"THONG KE TRANG THAI CRM - {sel_month}")
                 if not m_mkt.empty: write_sheet(m_mkt[['OWNER', 'LEAD ID', 'CELLPHONE', 'DATE ADDED']], 'MKT_Audit', f"DOI SOAT LEAD MKT - {sel_month}")
 
             st.sidebar.download_button("Tai File Excel (Da Sheet)", output.getvalue(), f"TMC_Full_Report_{sel_month.replace('/','_')}.xlsx")
