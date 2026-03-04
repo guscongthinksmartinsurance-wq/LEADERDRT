@@ -19,15 +19,15 @@ def clean_id(val):
     return s
 
 def parse_month_year(date_val):
-    """Hàm xử lý ngày tháng mạnh mẽ hơn"""
     try:
-        if pd.isna(date_val) or str(date_val).strip() == "": return None
-        # Thử ép kiểu ngày tháng, hỗ trợ nhiều định dạng (dayfirst=False cho giờ Mỹ)
-        dt = pd.to_datetime(date_val, errors='coerce', dayfirst=False)
-        if pd.notna(dt) and dt.year >= 2024: # Chỉ lấy từ năm 2024
+        if pd.isna(date_val) or str(date_val).strip() == "": return "Khong co ngay"
+        # Thu nhieu kieu doc ngay thang khac nhau
+        dt = pd.to_datetime(date_val, errors='coerce')
+        if pd.notna(dt):
+            if dt.year < 2024: return "Truoc 2024"
             return dt.strftime('%m/%Y')
-        return None
-    except: return None
+        return "Sai dinh dang"
+    except: return "Loi doc ngay"
 
 def get_rev(row):
     try:
@@ -56,28 +56,25 @@ def main():
         df_crm = pd.DataFrame(ws2.get_all_records())
         df_ml = pd.DataFrame(ws3.get_all_records())
 
-        # Chuẩn hóa dữ liệu ngay khi nạp
         for df in [df_mkt, df_crm, df_ml]:
             if 'LEAD ID' in df.columns: df['MATCH_ID'] = df['LEAD ID'].apply(clean_id)
             if 'DATE ADDED' in df.columns: df['MY_REF'] = df['DATE ADDED'].apply(parse_month_year)
 
-        # Lấy danh sách tháng từ 2024 trở đi
+        # Lay danh sach thang tu tat ca cac sheet de anh chon
         all_months = set()
         for df in [df_mkt, df_crm, df_ml]:
             if 'MY_REF' in df.columns:
-                all_months.update(df['MY_REF'].dropna().unique())
+                all_months.update(df['MY_REF'].unique())
         
-        # Sắp xếp và lọc Sidebar
-        sorted_months = sorted(list(all_months), 
-                               key=lambda x: datetime.strptime(x, '%m/%Y'), reverse=True)
+        # Loc bo cac gia tri loi khoi danh sach chon nhung van giu trong du lieu
+        select_options = [m for m in all_months if m not in ["Khong co ngay", "Sai dinh dang", "Truoc 2024", "Loi doc ngay"]]
+        sorted_months = sorted(select_options, key=lambda x: datetime.strptime(x, '%m/%Y'), reverse=True)
         
-        if not sorted_months:
-            st.warning("Chưa tìm thấy dữ liệu hợp lệ từ năm 2024 trong cột DATE ADDED.")
-            return
+        # Them cac lua chon loi vao cuoi danh sach de anh kiem tra neu can
+        sorted_months.extend([m for m in all_months if m in ["Khong co ngay", "Sai dinh dang", "Loi doc ngay"]])
 
         sel_month = st.sidebar.selectbox("Chon Thang/Nam", sorted_months)
 
-        # Lọc dữ liệu hiển thị
         m_mkt = df_mkt[df_mkt['MY_REF'] == sel_month]
         m_crm = df_crm[df_crm['MY_REF'] == sel_month]
         m_ml = df_ml[df_ml['MY_REF'] == sel_month]
@@ -85,68 +82,39 @@ def main():
         tab1, tab2, tab3 = st.tabs(["Doi soat MKT", "Trang thai CRM", "Doanh thu Masterlife"])
 
         with tab1:
-            st.subheader(f"Doi soat du lieu MKT sang CRM - {sel_month}")
-            total_mkt = len(m_mkt)
-            # Đối soát LEAD ID (Sheet 1) vào TOÀN BỘ Sheet 2 (CRM) để không bị sót
-            leads_on_crm = m_mkt['MATCH_ID'].isin(df_crm['MATCH_ID']).sum()
-            
-            c1, c2 = st.columns(2)
-            c1.metric("Tong Lead MKT vao", f"{total_mkt}")
-            c2.metric("So luong da len CRM", f"{leads_on_crm}", f"{leads_on_crm/total_mkt*100:.1f}%" if total_mkt > 0 else "0%")
-            st.dataframe(m_mkt[['OWNER', 'LEAD ID', 'CELLPHONE', 'DATE ADDED']], use_container_width=True)
+            st.subheader(f"Doi soat du lieu MKT - {sel_month}")
+            if m_mkt.empty:
+                st.warning(f"Sheet MKT khong co du lieu cho thang {sel_month}. Anh kiem tra cot DATE ADDED tai Sheet1.")
+            else:
+                total_mkt = len(m_mkt)
+                leads_on_crm = m_mkt['MATCH_ID'].isin(df_crm['MATCH_ID']).sum()
+                c1, c2 = st.columns(2)
+                c1.metric("Tong Lead MKT vao", f"{total_mkt}")
+                c2.metric("So luong da len CRM", f"{leads_on_crm}")
+                st.dataframe(m_mkt[['OWNER', 'LEAD ID', 'CELLPHONE', 'DATE ADDED']], use_container_width=True)
 
         with tab2:
-            st.subheader(f"Thong ke Status va Owner - {sel_month}")
+            st.subheader(f"Trang thai CRM - {sel_month}")
             if not m_crm.empty:
                 pivot_status = m_crm.groupby(['OWNER', 'STATUS']).size().unstack(fill_value=0)
                 st.dataframe(pivot_status.style.background_gradient(cmap="Blues", axis=1), use_container_width=True)
             else:
-                st.info("Khong co du lieu CRM trong thang nay.")
+                st.info("Khong co du lieu CRM.")
 
         with tab3:
-            st.subheader(f"Doanh thu va Toc do chot - {sel_month}")
-            if not m_ml.empty:
+            st.subheader(f"Doanh thu Masterlife - {sel_month}")
+            if m_ml.empty:
+                st.warning(f"Sheet Masterlife khong co du lieu cho thang {sel_month}. Anh kiem tra cot DATE ADDED tai Sheet3.")
+            else:
                 m_ml['FINAL_REV'] = m_ml.apply(get_rev, axis=1)
-                
-                def get_cycle(row):
-                    try:
-                        crm_record = df_crm[df_crm['MATCH_ID'] == row['MATCH_ID']]
-                        if not crm_record.empty:
-                            # Ưu tiên lấy ngày đầu tiên xuất hiện trên CRM
-                            d_crm = pd.to_datetime(crm_record['DATE ADDED'].iloc[0], errors='coerce')
-                            d_ml = pd.to_datetime(row['DATE ADDED'], errors='coerce')
-                            if pd.notna(d_crm) and pd.notna(d_ml):
-                                return (d_ml.year - d_crm.year) * 12 + (d_ml.month - d_crm.month)
-                        return "N/A"
-                    except: return "N/A"
-
-                m_ml['CYCLE'] = m_ml.apply(get_cycle, axis=1)
-                
                 rev_funnel = m_ml[m_ml['SOURCE'].str.contains('Funnel', na=False, case=False)]['FINAL_REV'].sum()
                 rev_cc = m_ml[m_ml['SOURCE'].str.contains('Cold Call|CC', na=False, case=False)]['FINAL_REV'].sum()
-
+                
                 c31, c32, c33 = st.columns(3)
                 c31.metric("Doanh thu Funnel", f"${rev_funnel:,.0f}")
                 c32.metric("Doanh thu Cold Call", f"${rev_cc:,.0f}")
                 c33.metric("So ho so chot", f"{len(m_ml)}")
-                st.dataframe(m_ml[['OWNER', 'LEAD ID', 'TEAM', 'FINAL_REV', 'CYCLE']], use_container_width=True)
-
-        if st.sidebar.button("Xuat Bao Cao Excel"):
-            buf = io.BytesIO()
-            with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
-                if not m_ml.empty:
-                    export_df = m_ml[['OWNER', 'LEAD ID', 'SOURCE', 'TEAM', 'FINAL_REV', 'CYCLE']]
-                    export_df.to_excel(writer, sheet_name='TMC_Report', index=False, startrow=3)
-                    workbook = writer.book
-                    worksheet = writer.sheets['TMC_Report']
-                    title_fmt = workbook.add_format({'bold': True, 'font_size': 14})
-                    header_fmt = workbook.add_format({'bold': True, 'border': 1, 'align': 'center'})
-                    worksheet.write(0, 0, f"BAO CAO TMC - {sel_month}", title_fmt)
-                    worksheet.write(1, 0, f"Ngay xuat: {datetime.now().strftime('%d/%m/%Y')}")
-                    for col_num, value in enumerate(export_df.columns.values):
-                        worksheet.write(3, col_num, value, header_fmt)
-                        worksheet.set_column(col_num, col_num, 18)
-            st.sidebar.download_button("Tai File", buf.getvalue(), f"TMC_Report_{sel_month.replace('/','_')}.xlsx")
+                st.dataframe(m_ml[['OWNER', 'LEAD ID', 'TEAM', 'FINAL_REV', 'DATE ADDED']], use_container_width=True)
 
     except Exception as e:
         st.error(f"Loi: {e}")
