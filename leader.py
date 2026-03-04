@@ -121,7 +121,7 @@ def main():
                         d_ml = pd.to_datetime(row['DATE ADDED'], errors='coerce')
                         if pd.notna(d_crm) and pd.notna(d_ml): return (d_ml.year - d_crm.year) * 12 + (d_ml.month - d_crm.month)
                     return "N/A"
-                m_ml['CYCLE'] = m_ml.apply(get_cycle, axis=1)
+                m_ml['CYCLE'] = m_ml.apply(get_cycle_new, axis=1)
                 
                 display_ml = m_ml[['OWNER', 'LEAD ID', 'TEAM', 'FINAL_REV', 'CYCLE']].copy()
                 display_ml.insert(0, 'STT', range(1, len(display_ml) + 1))
@@ -163,4 +163,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
