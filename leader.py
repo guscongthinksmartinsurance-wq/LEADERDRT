@@ -44,41 +44,55 @@ def main():
 
     st.markdown("""
         <style>
-        .stApp { background-color: #F8F9FA; }
-        section[data-testid="stSidebar"] { background-color: #112233 !important; }
-        section[data-testid="stSidebar"] .stMarkdown, section[data-testid="stSidebar"] label { color: white !important; }
+        .stApp { background-color: #F4F7F9; }
+        section[data-testid="stSidebar"] { background-color: #112233 !important; min-width: 250px; }
         
+        /* Metric Card Uniformity */
         [data-testid="stMetric"] {
-            background-color: white;
-            padding: 15px 20px;
-            border-radius: 10px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-            border-left: 5px solid #1F4E78;
-            min-height: 120px;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
+            background-color: white !important;
+            border: 1px solid #E0E4E8 !important;
+            padding: 20px !important;
+            border-radius: 12px !important;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05) !important;
+            border-left: 6px solid #1F4E78 !important;
+            min-height: 130px !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: center !important;
         }
 
+        /* Professional Table Headers */
         .stDataFrame thead tr th {
             background-color: #1F4E78 !important;
             color: white !important;
-            font-family: 'Georgia', serif !important;
-            font-size: 15px !important;
+            font-family: 'Segoe UI', sans-serif !important;
+            font-size: 14px !important;
+            font-weight: 700 !important;
             text-transform: uppercase !important;
+            padding: 12px !important;
+        }
+        
+        .stDataFrame td {
+            text-align: center !important;
+            font-size: 13px !important;
         }
 
-        h1, h3 { color: #112233; font-family: 'Georgia', serif; }
-        .stTabs [aria-selected="true"] { background-color: #1F4E78 !important; color: white !important; }
+        /* Sidebar Styling */
+        section[data-testid="stSidebar"] .stMarkdown, section[data-testid="stSidebar"] label { color: #FFFFFF !important; }
+        .stSelectbox label { font-weight: bold !important; color: #1F4E78 !important; }
+        
+        /* Typography */
+        h1 { color: #112233; font-family: 'Georgia', serif; border-bottom: 3px solid #1F4E78; padding-bottom: 10px; }
+        h3 { color: #1F4E78; font-size: 22px; margin-top: 25px; }
         </style>
         """, unsafe_allow_html=True)
 
     st.title("TMC Strategic Leader Dashboard")
     
     tz_ny = pytz.timezone('America/New_York')
-    now_ny = datetime.now(tz_ny).strftime('%d/%m/%Y | %H:%M')
-    st.sidebar.markdown(f"**NEW YORK TIME**")
-    st.sidebar.code(now_ny)
+    now_ny = datetime.now(tz_ny).strftime('%m/%d/%Y | %H:%M')
+    st.sidebar.markdown("### NEW YORK TIME")
+    st.sidebar.info(now_ny)
 
     try:
         client = get_gspread_client()
@@ -100,13 +114,13 @@ def main():
         sorted_months = sorted(valid_options, key=lambda x: datetime.strptime(x, '%m/%Y'), reverse=True)
         sorted_months.extend([m for m in all_months if m in ["Khong co ngay", "Sai dinh dang", "Loi doc ngay"]])
 
-        sel_month = st.sidebar.selectbox("Chon Thang/Nam", sorted_months)
+        sel_month = st.sidebar.selectbox("CHỌN THÁNG QUẢN TRỊ", sorted_months)
 
         m_mkt = df_mkt[df_mkt['MY_REF'] == sel_month]
         m_crm = df_crm[df_crm['MY_REF'] == sel_month]
         m_ml = df_ml[df_ml['MY_REF'] == sel_month]
 
-        tab1, tab2, tab3 = st.tabs(["DOI SOAT MKT", "CRM STATUS", "MASTERLIFE SALES"])
+        tab1, tab2, tab3 = st.tabs(["ĐỐI SOÁT MKT", "TRẠNG THÁI CRM", "DOANH THU MASTERLIFE"])
 
         with tab1:
             if not m_mkt.empty:
@@ -115,11 +129,11 @@ def main():
                 df_missing = m_mkt[~mask_on_crm].copy()
                 
                 c1, c2 = st.columns(2)
-                c1.metric("TONG LEAD MKT", f"{len(m_mkt)}")
-                c2.metric("DA LEN CRM", f"{leads_on_crm_count}", f"{leads_on_crm_count/len(m_mkt)*100:.1f}%" if len(m_mkt) > 0 else "0%")
+                c1.metric("TỔNG LEAD MARKETING", f"{len(m_mkt)}")
+                c2.metric("ĐÃ CẬP NHẬT CRM", f"{leads_on_crm_count}", f"{leads_on_crm_count/len(m_mkt)*100:.1f}%")
                 
                 if not df_missing.empty:
-                    st.markdown(f"<div style='background-color:#FDECEA; padding:15px; border-radius:10px; border-left:5px solid #990000; color:#990000; font-weight:bold; margin-bottom:20px;'>DANH SACH {len(df_missing)} LEAD CHUA LEN CRM</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='background-color:#FFF5F5; padding:20px; border-radius:12px; border:1px solid #FFD1D1; border-left:8px solid #CC0000; color:#CC0000; font-weight:bold; margin: 20px 0;'>DANH SÁCH {len(df_missing)} LEAD CHƯA LÊN CRM</div>", unsafe_allow_html=True)
                     df_missing.insert(0, 'STT', range(1, len(df_missing) + 1))
                     st.dataframe(df_missing[['STT', 'OWNER', 'LEAD ID', 'CELLPHONE', 'DATE ADDED']], use_container_width=True, hide_index=True)
                 
@@ -132,7 +146,6 @@ def main():
                 col_c1, col_c2 = st.columns([1, 1])
                 with col_c1: st.bar_chart(m_crm['STATUS'].value_counts(), color="#1F4E78")
                 with col_c2: st.bar_chart(m_crm['OWNER'].value_counts(), color="#2E7D32")
-                
                 pivot_status = m_crm.groupby(['OWNER', 'STATUS']).size().unstack(fill_value=0)
                 st.dataframe(pivot_status.style.background_gradient(cmap="Blues", axis=1), use_container_width=True)
 
@@ -151,38 +164,32 @@ def main():
                             return diff if diff >= 0 else 0
                     return "N/A"
                 m_ml['CYCLE'] = m_ml.apply(get_cycle_new, axis=1)
-                
-                st.metric("TONG DOANH THU", f"${m_ml['FINAL_REV'].sum():,.0f}")
+                st.metric("TỔNG DOANH THU THÁNG", f"${m_ml['FINAL_REV'].sum():,.0f}")
                 display_ml = m_ml[['OWNER', 'LEAD ID', 'TEAM', 'FINAL_REV', 'CYCLE']].copy()
                 display_ml.insert(0, 'STT', range(1, len(display_ml) + 1))
                 st.dataframe(display_ml, use_container_width=True, hide_index=True)
 
-        if st.sidebar.button("EXPORT EXCEL REPORT"):
+        st.sidebar.markdown("---")
+        if st.sidebar.button("XUẤT BÁO CÁO CHIẾN LƯỢC"):
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 workbook = writer.book
                 header_fmt = workbook.add_format({'bold': True, 'bg_color': '#1F4E78', 'font_color': 'white', 'border': 1, 'align': 'center'})
                 cell_fmt = workbook.add_format({'border': 1, 'align': 'center'})
-                
                 def write_sheet(df, name):
-                    df_export = df.copy()
-                    if 'STT' not in df_export.columns and name != "CRM_Status":
-                        df_export.insert(0, 'STT', range(1, len(df_export) + 1))
-                    df_export.to_excel(writer, sheet_name=name, index=True if name == "CRM_Status" else False, startrow=2)
+                    df_ex = df.copy()
+                    if 'STT' not in df_ex.columns and name != "CRM_Status": df_ex.insert(0, 'STT', range(1, len(df_ex) + 1))
+                    df_ex.to_excel(writer, sheet_name=name, index=True if name == "CRM_Status" else False, startrow=2)
                     ws = writer.sheets[name]
-                    for col_num, value in enumerate(df_export.columns.values):
+                    for col_num, value in enumerate(df_ex.columns.values):
                         col_idx = col_num + (1 if name == "CRM_Status" else 0)
                         ws.write(2, col_idx, value, header_fmt)
                         ws.set_column(col_idx, col_idx, 20, cell_fmt)
-                
                 if not m_ml.empty: write_sheet(m_ml[['OWNER', 'LEAD ID', 'SOURCE', 'TEAM', 'FINAL_REV', 'CYCLE']], 'Sales_Summary')
                 if not m_crm.empty: write_sheet(pivot_status, 'CRM_Status')
                 if not m_mkt.empty: write_sheet(m_mkt[['OWNER', 'LEAD ID', 'CELLPHONE', 'DATE ADDED']], 'MKT_Audit')
+            st.sidebar.download_button("TẢI FILE EXCEL", output.getvalue(), f"TMC_Report_{sel_month.replace('/','_')}.xlsx")
 
-            st.sidebar.download_button("Download Excel", output.getvalue(), f"TMC_Report_{sel_month.replace('/','_')}.xlsx")
+    except Exception as e: st.error(f"Lỗi: {e}")
 
-    except Exception as e:
-        st.error(f"Error: {e}")
-
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__": main()
