@@ -71,13 +71,26 @@ def main():
         tab1, tab2, tab3 = st.tabs(["Doi soat MKT", "Dashboard & Trang thai CRM", "Doanh thu Masterlife"])
 
         with tab1:
-            st.subheader(f"Doi soat MKT - {sel_month}")
+            st.subheader(f"Doi soat du lieu MKT - {sel_month}")
             if not m_mkt.empty:
-                leads_on_crm = m_mkt['MATCH_ID'].isin(df_crm['MATCH_ID']).sum()
-                st.metric("Lead da len CRM", f"{leads_on_crm}/{len(m_mkt)}")
-                display_mkt = m_mkt[['OWNER', 'LEAD ID', 'CELLPHONE', 'DATE ADDED']].copy()
+                mask_on_crm = m_mkt['MATCH_ID'].isin(df_crm['MATCH_ID'])
+                leads_on_crm_count = mask_on_crm.sum()
+                df_missing = m_mkt[~mask_on_crm].copy() 
+                
+                c1, c2 = st.columns(2)
+                c1.metric("Tong Lead MKT vao", f"{len(m_mkt)}")
+                c2.metric("So luong da len CRM", f"{leads_on_crm_count}", f"{leads_on_crm_count/len(m_mkt)*100:.1f}%")
+                
+                if not df_missing.empty:
+                    st.error(f"⚠️ DANH SACH {len(df_missing)} LEAD CHUA LEN CRM (CAN KIEM TRA)")
+                    df_missing.insert(0, 'STT', range(1, len(df_missing) + 1))
+                    st.dataframe(df_missing[['STT', 'OWNER', 'LEAD ID', 'CELLPHONE', 'DATE ADDED']], use_container_width=True, hide_index=True)
+                
+                st.markdown("---")
+                st.markdown("**Danh sach tat ca Lead MKT trong thang:**")
+                display_mkt = m_mkt.copy()
                 display_mkt.insert(0, 'STT', range(1, len(display_mkt) + 1))
-                st.dataframe(display_mkt, use_container_width=True, hide_index=True)
+                st.dataframe(display_mkt[['STT', 'OWNER', 'LEAD ID', 'CELLPHONE', 'DATE ADDED']], use_container_width=True, hide_index=True)
 
         with tab2:
             st.subheader(f"Dashboard Quan tri CRM - {sel_month}")
@@ -150,3 +163,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
