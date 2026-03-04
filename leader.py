@@ -21,7 +21,6 @@ def clean_id(val):
 def parse_month_year(date_val):
     try:
         if pd.isna(date_val) or str(date_val).strip() == "": return "Khong co ngay"
-        # Thu nhieu kieu doc ngay thang khac nhau
         dt = pd.to_datetime(date_val, errors='coerce')
         if pd.notna(dt):
             if dt.year < 2024: return "Truoc 2024"
@@ -60,17 +59,13 @@ def main():
             if 'LEAD ID' in df.columns: df['MATCH_ID'] = df['LEAD ID'].apply(clean_id)
             if 'DATE ADDED' in df.columns: df['MY_REF'] = df['DATE ADDED'].apply(parse_month_year)
 
-        # Lay danh sach thang tu tat ca cac sheet de anh chon
         all_months = set()
         for df in [df_mkt, df_crm, df_ml]:
             if 'MY_REF' in df.columns:
                 all_months.update(df['MY_REF'].unique())
         
-        # Loc bo cac gia tri loi khoi danh sach chon nhung van giu trong du lieu
-        select_options = [m for m in all_months if m not in ["Khong co ngay", "Sai dinh dang", "Truoc 2024", "Loi doc ngay"]]
-        sorted_months = sorted(select_options, key=lambda x: datetime.strptime(x, '%m/%Y'), reverse=True)
-        
-        # Them cac lua chon loi vao cuoi danh sach de anh kiem tra neu can
+        valid_options = [m for m in all_months if m not in ["Khong co ngay", "Sai dinh dang", "Truoc 2024", "Loi doc ngay"]]
+        sorted_months = sorted(valid_options, key=lambda x: datetime.strptime(x, '%m/%Y'), reverse=True)
         sorted_months.extend([m for m in all_months if m in ["Khong co ngay", "Sai dinh dang", "Loi doc ngay"]])
 
         sel_month = st.sidebar.selectbox("Chon Thang/Nam", sorted_months)
@@ -83,9 +78,7 @@ def main():
 
         with tab1:
             st.subheader(f"Doi soat du lieu MKT - {sel_month}")
-            if m_mkt.empty:
-                st.warning(f"Sheet MKT khong co du lieu cho thang {sel_month}. Anh kiem tra cot DATE ADDED tai Sheet1.")
-            else:
+            if not m_mkt.empty:
                 total_mkt = len(m_mkt)
                 leads_on_crm = m_mkt['MATCH_ID'].isin(df_crm['MATCH_ID']).sum()
                 c1, c2 = st.columns(2)
@@ -98,15 +91,24 @@ def main():
             if not m_crm.empty:
                 pivot_status = m_crm.groupby(['OWNER', 'STATUS']).size().unstack(fill_value=0)
                 st.dataframe(pivot_status.style.background_gradient(cmap="Blues", axis=1), use_container_width=True)
-            else:
-                st.info("Khong co du lieu CRM.")
 
         with tab3:
             st.subheader(f"Doanh thu Masterlife - {sel_month}")
-            if m_ml.empty:
-                st.warning(f"Sheet Masterlife khong co du lieu cho thang {sel_month}. Anh kiem tra cot DATE ADDED tai Sheet3.")
-            else:
+            if not m_ml.empty:
                 m_ml['FINAL_REV'] = m_ml.apply(get_rev, axis=1)
+                
+                def get_cycle(row):
+                    try:
+                        crm_record = df_crm[df_crm['MATCH_ID'] == row['MATCH_ID']]
+                        if not crm_record.empty:
+                            d_crm = pd.to_datetime(crm_record['DATE ADDED'].iloc[0], errors='coerce')
+                            d_ml = pd.to_datetime(row['DATE ADDED'], errors='coerce')
+                            if pd.notna(d_crm) and pd.notna(d_ml):
+                                return (d_ml.year - d_crm.year) * 12 + (d_ml.month - d_crm.month)
+                        return "N/A"
+                    except: return "N/A"
+
+                m_ml['CYCLE'] = m_ml.apply(get_cycle, axis=1)
                 rev_funnel = m_ml[m_ml['SOURCE'].str.contains('Funnel', na=False, case=False)]['FINAL_REV'].sum()
                 rev_cc = m_ml[m_ml['SOURCE'].str.contains('Cold Call|CC', na=False, case=False)]['FINAL_REV'].sum()
                 
@@ -114,7 +116,40 @@ def main():
                 c31.metric("Doanh thu Funnel", f"${rev_funnel:,.0f}")
                 c32.metric("Doanh thu Cold Call", f"${rev_cc:,.0f}")
                 c33.metric("So ho so chot", f"{len(m_ml)}")
-                st.dataframe(m_ml[['OWNER', 'LEAD ID', 'TEAM', 'FINAL_REV', 'DATE ADDED']], use_container_width=True)
+                st.dataframe(m_ml[['OWNER', 'LEAD ID', 'TEAM', 'FINAL_REV', 'CYCLE', 'DATE ADDED']], use_container_width=True)
+
+        # --- NUT EXPORT EXCEL ---
+        st.sidebar.markdown("---")
+        if st.sidebar.button("Chuan bi File Export"):
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                # Xuat du lieu chot (Sheet 3) lam bao cao chinh
+                if not m_ml.empty:
+                    export_df = m_ml[['OWNER', 'LEAD ID', 'SOURCE', 'TEAM', 'FINAL_REV', 'CYCLE', 'DATE ADDED']]
+                    export_df.to_excel(writer, sheet_name='Summary_Report', index=False, startrow=3)
+                    
+                    workbook = writer.book
+                    worksheet = writer.sheets['Summary_Report']
+                    
+                    # Dinh dang file chuyên nghiep
+                    header_format = workbook.add_format({'bold': True, 'bg_color': '#D9E1F2', 'border': 1})
+                    title_format = workbook.add_format({'bold': True, 'font_size': 14})
+                    
+                    worksheet.write(0, 0, f"BAO CAO DOANH THU TMC - THANG {sel_month}", title_format)
+                    worksheet.write(1, 0, f"Ngay xuat file: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+                    
+                    for col_num, value in enumerate(export_df.columns.values):
+                        worksheet.write(3, col_num, value, header_format)
+                        worksheet.set_column(col_num, col_num, 20) # Khoan cach deu nhau
+                else:
+                    pd.DataFrame(["Khong co du lieu de xuat"]).to_excel(writer, sheet_name='No_Data')
+
+            st.sidebar.download_button(
+                label="Tai File Excel",
+                data=output.getvalue(),
+                file_name=f"TMC_Strategic_Report_{sel_month.replace('/','_')}.xlsx",
+                mime="application/vnd.ms-excel"
+            )
 
     except Exception as e:
         st.error(f"Loi: {e}")
