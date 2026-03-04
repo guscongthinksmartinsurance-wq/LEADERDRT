@@ -19,10 +19,14 @@ def clean_id(val):
     return s
 
 def parse_month_year(date_val):
+    """Hàm xử lý ngày tháng mạnh mẽ hơn"""
     try:
         if pd.isna(date_val) or str(date_val).strip() == "": return None
-        dt = pd.to_datetime(date_val, errors='coerce')
-        return dt.strftime('%m/%Y') if pd.notna(dt) else None
+        # Thử ép kiểu ngày tháng, hỗ trợ nhiều định dạng (dayfirst=False cho giờ Mỹ)
+        dt = pd.to_datetime(date_val, errors='coerce', dayfirst=False)
+        if pd.notna(dt) and dt.year >= 2024: # Chỉ lấy từ năm 2024
+            return dt.strftime('%m/%Y')
+        return None
     except: return None
 
 def get_rev(row):
@@ -52,20 +56,28 @@ def main():
         df_crm = pd.DataFrame(ws2.get_all_records())
         df_ml = pd.DataFrame(ws3.get_all_records())
 
+        # Chuẩn hóa dữ liệu ngay khi nạp
         for df in [df_mkt, df_crm, df_ml]:
             if 'LEAD ID' in df.columns: df['MATCH_ID'] = df['LEAD ID'].apply(clean_id)
             if 'DATE ADDED' in df.columns: df['MY_REF'] = df['DATE ADDED'].apply(parse_month_year)
 
-        all_available_months = set()
+        # Lấy danh sách tháng từ 2024 trở đi
+        all_months = set()
         for df in [df_mkt, df_crm, df_ml]:
             if 'MY_REF' in df.columns:
-                all_available_months.update(df['MY_REF'].dropna().unique())
+                all_months.update(df['MY_REF'].dropna().unique())
         
-        sorted_months = sorted(list(all_available_months), 
+        # Sắp xếp và lọc Sidebar
+        sorted_months = sorted(list(all_months), 
                                key=lambda x: datetime.strptime(x, '%m/%Y'), reverse=True)
         
+        if not sorted_months:
+            st.warning("Chưa tìm thấy dữ liệu hợp lệ từ năm 2024 trong cột DATE ADDED.")
+            return
+
         sel_month = st.sidebar.selectbox("Chon Thang/Nam", sorted_months)
 
+        # Lọc dữ liệu hiển thị
         m_mkt = df_mkt[df_mkt['MY_REF'] == sel_month]
         m_crm = df_crm[df_crm['MY_REF'] == sel_month]
         m_ml = df_ml[df_ml['MY_REF'] == sel_month]
@@ -75,6 +87,7 @@ def main():
         with tab1:
             st.subheader(f"Doi soat du lieu MKT sang CRM - {sel_month}")
             total_mkt = len(m_mkt)
+            # Đối soát LEAD ID (Sheet 1) vào TOÀN BỘ Sheet 2 (CRM) để không bị sót
             leads_on_crm = m_mkt['MATCH_ID'].isin(df_crm['MATCH_ID']).sum()
             
             c1, c2 = st.columns(2)
@@ -88,7 +101,7 @@ def main():
                 pivot_status = m_crm.groupby(['OWNER', 'STATUS']).size().unstack(fill_value=0)
                 st.dataframe(pivot_status.style.background_gradient(cmap="Blues", axis=1), use_container_width=True)
             else:
-                st.info("Khong co du lieu CRM.")
+                st.info("Khong co du lieu CRM trong thang nay.")
 
         with tab3:
             st.subheader(f"Doanh thu va Toc do chot - {sel_month}")
@@ -99,13 +112,16 @@ def main():
                     try:
                         crm_record = df_crm[df_crm['MATCH_ID'] == row['MATCH_ID']]
                         if not crm_record.empty:
-                            d_crm = pd.to_datetime(crm_record['DATE ADDED'].iloc[0])
-                            d_ml = pd.to_datetime(row['DATE ADDED'])
-                            return (d_ml.year - d_crm.year) * 12 + (d_ml.month - d_crm.month)
+                            # Ưu tiên lấy ngày đầu tiên xuất hiện trên CRM
+                            d_crm = pd.to_datetime(crm_record['DATE ADDED'].iloc[0], errors='coerce')
+                            d_ml = pd.to_datetime(row['DATE ADDED'], errors='coerce')
+                            if pd.notna(d_crm) and pd.notna(d_ml):
+                                return (d_ml.year - d_crm.year) * 12 + (d_ml.month - d_crm.month)
                         return "N/A"
                     except: return "N/A"
 
                 m_ml['CYCLE'] = m_ml.apply(get_cycle, axis=1)
+                
                 rev_funnel = m_ml[m_ml['SOURCE'].str.contains('Funnel', na=False, case=False)]['FINAL_REV'].sum()
                 rev_cc = m_ml[m_ml['SOURCE'].str.contains('Cold Call|CC', na=False, case=False)]['FINAL_REV'].sum()
 
