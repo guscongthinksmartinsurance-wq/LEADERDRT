@@ -71,15 +71,15 @@ def main():
         tab1, tab2, tab3 = st.tabs(["Doi soat MKT", "Dashboard & Trang thai CRM", "Doanh thu Masterlife"])
 
         with tab1:
-            st.subheader(f"Doi soat du lieu MKT - {sel_month}")
+            st.subheader(f"Doi soat MKT - {sel_month}")
             if not m_mkt.empty:
                 mask_on_crm = m_mkt['MATCH_ID'].isin(df_crm['MATCH_ID'])
                 leads_on_crm_count = mask_on_crm.sum()
-                df_missing = m_mkt[~mask_on_crm].copy() 
+                df_missing = m_mkt[~mask_on_crm].copy()
                 
                 c1, c2 = st.columns(2)
                 c1.metric("Tong Lead MKT vao", f"{len(m_mkt)}")
-                c2.metric("So luong da len CRM", f"{leads_on_crm_count}", f"{leads_on_crm_count/len(m_mkt)*100:.1f}%")
+                c2.metric("So luong da len CRM", f"{leads_on_crm_count}", f"{leads_on_crm_count/len(m_mkt)*100:.1f}%" if len(m_mkt) > 0 else "0%")
                 
                 if not df_missing.empty:
                     st.error(f"⚠️ DANH SACH {len(df_missing)} LEAD CHUA LEN CRM (CAN KIEM TRA)")
@@ -87,26 +87,16 @@ def main():
                     st.dataframe(df_missing[['STT', 'OWNER', 'LEAD ID', 'CELLPHONE', 'DATE ADDED']], use_container_width=True, hide_index=True)
                 
                 st.markdown("---")
-                st.markdown("**Danh sach tat ca Lead MKT trong thang:**")
                 display_mkt = m_mkt.copy()
                 display_mkt.insert(0, 'STT', range(1, len(display_mkt) + 1))
                 st.dataframe(display_mkt[['STT', 'OWNER', 'LEAD ID', 'CELLPHONE', 'DATE ADDED']], use_container_width=True, hide_index=True)
 
         with tab2:
-            st.subheader(f"Dashboard Quan tri CRM - {sel_month}")
+            st.subheader(f"Dashboard & Trang thai CRM - {sel_month}")
             if not m_crm.empty:
                 c1, c2 = st.columns([1, 2])
-                status_counts = m_crm['STATUS'].value_counts()
-                with c1:
-                    st.markdown("**Tong quan Trang thai**")
-                    st.bar_chart(status_counts)
-                with c2:
-                    st.markdown("**Phan bo Lead theo Owner**")
-                    owner_counts = m_crm['OWNER'].value_counts()
-                    st.bar_chart(owner_counts)
-                
-                st.markdown("---")
-                st.markdown("**Chi tiet trang thai tung thanh vien**")
+                with c1: st.bar_chart(m_crm['STATUS'].value_counts())
+                with c2: st.bar_chart(m_crm['OWNER'].value_counts())
                 pivot_status = m_crm.groupby(['OWNER', 'STATUS']).size().unstack(fill_value=0)
                 st.dataframe(pivot_status.style.background_gradient(cmap="Blues", axis=1), use_container_width=True)
 
@@ -114,13 +104,23 @@ def main():
             st.subheader(f"Doanh thu Masterlife - {sel_month}")
             if not m_ml.empty:
                 m_ml['FINAL_REV'] = m_ml.apply(get_rev, axis=1)
-                def get_cycle(row):
+                
+                def get_cycle_new(row):
+                    # 1. Neu la Cold Call thi de CC
+                    source_val = str(row.get('SOURCE', '')).upper()
+                    if 'COLD CALL' in source_val or 'CC' in source_val:
+                        return "CC"
+                    
+                    # 2. Neu la Funnel, tinh khoang cach thang
                     crm_rec = df_crm[df_crm['MATCH_ID'] == row['MATCH_ID']]
                     if not crm_rec.empty:
                         d_crm = pd.to_datetime(crm_rec['DATE ADDED'].iloc[0], errors='coerce')
                         d_ml = pd.to_datetime(row['DATE ADDED'], errors='coerce')
-                        if pd.notna(d_crm) and pd.notna(d_ml): return (d_ml.year - d_crm.year) * 12 + (d_ml.month - d_crm.month)
+                        if pd.notna(d_crm) and pd.notna(d_ml):
+                            diff = (d_ml.year - d_crm.year) * 12 + (d_ml.month - d_crm.month)
+                            return diff if diff >= 0 else 0
                     return "N/A"
+
                 m_ml['CYCLE'] = m_ml.apply(get_cycle_new, axis=1)
                 
                 display_ml = m_ml[['OWNER', 'LEAD ID', 'TEAM', 'FINAL_REV', 'CYCLE']].copy()
@@ -140,12 +140,10 @@ def main():
                     df_export = df.copy()
                     if 'STT' not in df_export.columns and name != "CRM_Status":
                         df_export.insert(0, 'STT', range(1, len(df_export) + 1))
-                    
                     df_export.to_excel(writer, sheet_name=name, index=True if name == "CRM_Status" else False, startrow=3)
                     ws = writer.sheets[name]
                     ws.write(0, 0, title, title_fmt)
                     ws.write(1, 0, f"Ngay xuat: {datetime.now().strftime('%d/%m/%Y')}")
-                    
                     for col_num, value in enumerate(df_export.columns.values):
                         col_idx = col_num + (1 if name == "CRM_Status" else 0)
                         ws.write(3, col_idx, value, header_fmt)
@@ -163,5 +161,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
